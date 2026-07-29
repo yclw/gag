@@ -110,6 +110,10 @@ type ModelNode struct {
 	Metadata json.RawMessage
 }
 
+func NewModelNode(id string, model Model) (*ModelNode, error) {
+	return &ModelNode{NodeID: id, Model: model}, nil
+}
+
 var _ graph.Node = (*ModelNode)(nil)
 
 func (n *ModelNode) ID() string {

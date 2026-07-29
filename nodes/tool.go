@@ -23,6 +23,14 @@ type ToolNode struct {
 	Tools  map[string]Tool
 }
 
+func NewToolNode(id string, tools ...Tool) (*ToolNode, error) {
+	registry := make(map[string]Tool, len(tools))
+	for _, tool := range tools {
+		registry[tool.Name()] = tool
+	}
+	return &ToolNode{NodeID: id, Tools: registry}, nil
+}
+
 var _ graph.Node = (*ToolNode)(nil)
 
 func (n *ToolNode) ID() string {
@@ -30,7 +38,7 @@ func (n *ToolNode) ID() string {
 }
 
 func (n *ToolNode) Run(ctx context.Context, events *[]graph.Event, emit graph.EmitFunc) (graph.NodeResult, error) {
-	calls, err := unfinishedToolCalls(*events)
+	calls, err := UnfinishedToolCalls(*events)
 	if err != nil {
 		return graph.NodeResult{}, err
 	}
@@ -79,7 +87,7 @@ func appendToolResult(ctx context.Context, events *[]graph.Event, emit graph.Emi
 	return emit(ctx, event)
 }
 
-func unfinishedToolCalls(events []graph.Event) ([]ToolCall, error) {
+func UnfinishedToolCalls(events []graph.Event) ([]ToolCall, error) {
 	completed := make(map[string]bool)
 	var calls []ToolCall
 	for _, event := range events {

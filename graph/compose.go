@@ -26,7 +26,7 @@ type Builder struct {
 	err    error
 }
 
-func New(id string, nodes ...Node) *Builder {
+func NewBuilder(id string, nodes ...Node) *Builder {
 	b := &Builder{
 		id:     id,
 		nodes:  make(map[string]Node),
@@ -73,15 +73,15 @@ func (b *Builder) StartNode(id string) *Builder {
 	})
 }
 
-func (b *Builder) Build() (Graph, error) {
+func (b *Builder) Build() (*Graph, error) {
 	if b.err != nil {
-		return Graph{}, b.err
+		return nil, b.err
 	}
 	if b.start == nil {
-		return Graph{}, errors.New("compose: start router is not configured")
+		return nil, errors.New("compose: start router is not configured")
 	}
 	if len(b.nodes) == 0 {
-		return Graph{}, errors.New("compose: no nodes")
+		return nil, errors.New("compose: no nodes")
 	}
 
 	nodes := make(map[string]Node, len(b.nodes))
@@ -120,7 +120,7 @@ func (b *Builder) Build() (Graph, error) {
 		return router(ctx, worker)
 	}
 
-	return Graph{
+	return &Graph{
 		nodes: nodes,
 		next:  next,
 	}, nil

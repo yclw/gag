@@ -21,6 +21,10 @@ type UserMessageInput struct {
 
 var _ graph.Node = (*UserMessageNode)(nil)
 
+func NewUserMessageNode(id string) (*UserMessageNode, error) {
+	return &UserMessageNode{NodeID: id}, nil
+}
+
 func (n *UserMessageNode) ID() string {
 	return n.NodeID
 }
