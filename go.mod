@@ -1,4 +1,4 @@
-module gag
+module github.com/yclw/gag
 
 go 1.26.3
 

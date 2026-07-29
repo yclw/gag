@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"gag/graph"
+
+	"github.com/yclw/gag/graph"
 )
 
 type Tool interface {

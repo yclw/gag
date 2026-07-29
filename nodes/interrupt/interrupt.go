@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"gag/graph"
+	"github.com/yclw/gag/graph"
 )
 
 const (

@@ -2,8 +2,9 @@ package react
 
 import (
 	"context"
-	"gag/graph"
-	"gag/nodes"
+
+	"github.com/yclw/gag/graph"
+	"github.com/yclw/gag/nodes"
 )
 
 const (

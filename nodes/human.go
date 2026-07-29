@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"gag/graph"
-	"gag/nodes/interrupt"
+	"github.com/yclw/gag/graph"
+	"github.com/yclw/gag/nodes/interrupt"
 )
 
 const UserMessageInterruptKind string = "user.message"

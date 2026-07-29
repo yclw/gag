@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gag/nodes"
+	"github.com/yclw/gag/nodes"
 
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"

@@ -3,7 +3,8 @@ package nodes
 import (
 	"context"
 	"encoding/json"
-	"gag/graph"
+
+	"github.com/yclw/gag/graph"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
