@@ -46,6 +46,16 @@ type ToolDefinition struct {
 	Metadata    json.RawMessage    `json:"metadata,omitempty"`
 }
 
+const (
+	TextContentType      string = "text"
+	ImageContentType     string = "image"
+	AudioContentType     string = "audio"
+	VideoContentType     string = "video"
+	FileContentType      string = "file"
+	ReasoningContentType string = "reasoning"
+	JSONContentType      string = "json"
+)
+
 type ContentPart struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text,omitempty"`
@@ -169,7 +179,7 @@ func (n *ModelNode) Run(ctx context.Context, events *[]graph.Event, emit graph.E
 			text = "\n\n" + text
 		}
 		partial.Content = append(partial.Content, ContentPart{
-			Type: "text",
+			Type: TextContentType,
 			Text: text,
 		})
 		partial.StopReason = "cancelled"
@@ -213,9 +223,9 @@ func modelMessages(events []graph.Event) ([]ModelMessage, error) {
 func appendContent(parts []ContentPart, incoming ...ContentPart) []ContentPart {
 	for _, part := range incoming {
 		last := len(parts) - 1
-		if part.Type == "text" &&
+		if part.Type == TextContentType &&
 			last >= 0 &&
-			parts[last].Type == "text" &&
+			parts[last].Type == TextContentType &&
 			len(parts[last].Metadata) == 0 &&
 			len(part.Metadata) == 0 {
 			parts[last].Text += part.Text
