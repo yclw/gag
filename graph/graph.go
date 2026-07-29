@@ -12,7 +12,7 @@ type Event struct {
 	Data json.RawMessage `json:"data"`
 }
 
-func NewEvent(typ string, payload any) (Event, error) {
+func NewEvent[T any](typ string, payload T) (Event, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return Event{}, fmt.Errorf("event %q: encode payload: %w", typ, err)
@@ -20,16 +20,18 @@ func NewEvent(typ string, payload any) (Event, error) {
 	return Event{Type: typ, Data: data}, nil
 }
 
+func DecodeEvent[T any](event Event, expected string) (T, error) {
+	var payload T
+	if event.Type != expected {
+		return payload, fmt.Errorf("event: type is %q, want %q", event.Type, expected)
+	}
+	if err := json.Unmarshal(event.Data, &payload); err != nil {
+		return payload, fmt.Errorf("event %q: decode payload: %w", event.Type, err)
+	}
+	return payload, nil
+}
+
 type EmitFunc func(ctx context.Context, event Event) error
-
-type RunAction uint8
-
-const (
-	RunContinue RunAction = iota
-	RunSuspend
-	RunPause
-	RunReset
-)
 
 type NodeResult struct {
 	Action RunAction

@@ -12,6 +12,8 @@ type Model interface {
 	Generate(context.Context, ModelInput, func(ModelChunk) error) (ModelMessage, error)
 }
 
+const ModelMessageEventType string = "model.message"
+
 const (
 	SystemRole    string = "system"
 	UserRole      string = "user"
@@ -94,6 +96,13 @@ type ModelChunk struct {
 	Metadata   json.RawMessage `json:"metadata,omitempty"`
 }
 
+const ModelDeltaEventType = "model.delta"
+
+type ModelDelta struct {
+	NodeID string     `json:"node_id"`
+	Chunk  ModelChunk `json:"chunk"`
+}
+
 type ModelNode struct {
 	NodeID   string
 	Model    Model
@@ -108,6 +117,108 @@ func (n *ModelNode) ID() string {
 }
 
 func (n *ModelNode) Run(ctx context.Context, events *[]graph.Event, emit graph.EmitFunc) (graph.NodeResult, error) {
-	// TODO
-	panic("")
+	messages, err := modelMessages(*events)
+	if err != nil {
+		return graph.NodeResult{}, err
+	}
+
+	partial := ModelMessage{Role: AssistantRole}
+	var message ModelMessage
+	if cause := context.Cause(ctx); cause != nil {
+		err = cause
+	} else {
+		message, err = n.Model.Generate(ctx, ModelInput{
+			Messages: messages,
+			Tools:    n.Tools,
+			Metadata: n.Metadata,
+		}, func(chunk ModelChunk) error {
+			partial.Content = append(
+				partial.Content,
+				chunk.Message.Content...,
+			)
+
+			event, err := graph.NewEvent(
+				ModelDeltaEventType,
+				ModelDelta{
+					NodeID: n.NodeID,
+					Chunk:  chunk,
+				},
+			)
+			if err != nil {
+				return err
+			}
+			return emit(ctx, event)
+		})
+	}
+	if action, ok := graph.ControlAction(err); ok {
+		return graph.NodeResult{Action: action}, nil
+	}
+
+	if err != nil {
+		cause := context.Cause(ctx)
+		if cause == nil {
+			return graph.NodeResult{}, err
+		}
+
+		text := cause.Error()
+		if len(partial.Content) > 0 {
+			text = "\n\n" + text
+		}
+		partial.Content = append(partial.Content, ContentPart{
+			Type: "text",
+			Text: text,
+		})
+		partial.StopReason = "cancelled"
+		message = partial
+	}
+
+	message.Content = appendContent(nil, message.Content...)
+
+	event, err := graph.NewEvent(ModelMessageEventType, message)
+	if err != nil {
+		return graph.NodeResult{}, err
+	}
+
+	*events = append(*events, event)
+	if err := emit(ctx, event); err != nil {
+		return graph.NodeResult{}, err
+	}
+
+	return graph.NodeResult{Action: graph.RunContinue}, nil
+}
+
+func modelMessages(events []graph.Event) ([]ModelMessage, error) {
+	var messages []ModelMessage
+	for _, event := range events {
+		if event.Type != ModelMessageEventType {
+			continue
+		}
+
+		message, err := graph.DecodeEvent[ModelMessage](
+			event,
+			ModelMessageEventType,
+		)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+	return messages, nil
+}
+
+func appendContent(parts []ContentPart, incoming ...ContentPart) []ContentPart {
+	for _, part := range incoming {
+		last := len(parts) - 1
+		if part.Type == "text" &&
+			last >= 0 &&
+			parts[last].Type == "text" &&
+			len(parts[last].Metadata) == 0 &&
+			len(part.Metadata) == 0 {
+			parts[last].Text += part.Text
+			continue
+		}
+
+		parts = append(parts, part)
+	}
+	return parts
 }
