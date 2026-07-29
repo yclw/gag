@@ -37,9 +37,7 @@ func (n *ToolNode) Run(ctx context.Context, events *[]graph.Event, emit graph.Em
 
 	for _, call := range calls {
 		var result ToolResult
-		if cause := context.Cause(ctx); cause != nil {
-			result = toolErrorResult(cause)
-		} else if tool := n.Tools[call.ToolName]; tool == nil {
+		if tool := n.Tools[call.ToolName]; tool == nil {
 			result = toolErrorResult(fmt.Errorf("tool %q not found", call.ToolName))
 		} else {
 			result, err = tool.Execute(ctx, call, events, emit)
