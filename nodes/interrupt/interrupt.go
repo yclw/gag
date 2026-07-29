@@ -26,7 +26,7 @@ type InterruptResumed struct {
 	Metadata  json.RawMessage `json:"metadata,omitempty"`
 }
 
-func Interrupt(ctx context.Context, events *[]graph.Event, emit func(graph.Event) error, request InterruptRequested) (InterruptResumed, error) {
+func Interrupt(ctx context.Context, events *[]graph.Event, emit graph.EmitFunc, request InterruptRequested) (InterruptResumed, error) {
 	requestIndexes, responseIndexes, response, err := findInterruptEvents(*events, request.ID)
 	if err != nil {
 		return InterruptResumed{}, err
@@ -48,10 +48,8 @@ func Interrupt(ctx context.Context, events *[]graph.Event, emit func(graph.Event
 			return InterruptResumed{}, err
 		}
 		*events = append(*events, event)
-		if emit != nil {
-			if err := emit(event); err != nil {
-				return InterruptResumed{}, err
-			}
+		if err := emit(ctx, event); err != nil {
+			return InterruptResumed{}, err
 		}
 	}
 
