@@ -115,10 +115,11 @@ type ModelDelta struct {
 }
 
 type ModelNode struct {
-	NodeID   string
-	Model    Model
-	Tools    []ToolDefinition
-	Metadata json.RawMessage
+	NodeID       string
+	Model        Model
+	SystemPrompt string
+	Tools        []ToolDefinition
+	Metadata     json.RawMessage
 }
 
 func NewModelNode(id string, model Model) (*ModelNode, error) {
@@ -136,6 +137,14 @@ func (n *ModelNode) Run(ctx context.Context, events *[]graph.Event, emit graph.E
 	if err != nil {
 		return graph.NodeResult{}, err
 	}
+
+	messages = append([]ModelMessage{{
+		Role: SystemRole,
+		Content: []ContentPart{{
+			Type: TextContentType,
+			Text: n.SystemPrompt,
+		}},
+	}}, messages...)
 
 	partial := ModelMessage{Role: AssistantRole}
 	var message ModelMessage

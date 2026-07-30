@@ -14,7 +14,7 @@ const (
 	toolNodeID  string = "react.tool"
 )
 
-func New(m nodes.Model, tools ...nodes.Tool) (*graph.Graph, error) {
+func New(m nodes.Model, systemPrompt string, tools ...nodes.Tool) (*graph.Graph, error) {
 	userNode, err := nodes.NewUserMessageNode(userNodeID)
 	if err != nil {
 		return nil, err
@@ -24,6 +24,7 @@ func New(m nodes.Model, tools ...nodes.Tool) (*graph.Graph, error) {
 	if err != nil {
 		return nil, err
 	}
+	modelNode.SystemPrompt = systemPrompt
 	for _, tool := range tools {
 		modelNode.Tools = append(modelNode.Tools, tool.Definition())
 	}
