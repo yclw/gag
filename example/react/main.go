@@ -59,7 +59,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	agent, err := react.New(model, addTool{})
+	const systemPrompt = `You are a math assistant.`
+	agent, err := react.New(model, systemPrompt, addTool{})
 	if err != nil {
 		log.Fatal(err)
 	}

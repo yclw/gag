@@ -10,7 +10,8 @@ export OPENAI_API_KEY="..."
 export OPENAI_MODEL="..."
 export OPENAI_BASE_URL="..."
 
-go run ./example/react
+cd example/react
+go run .
 ```
 
 The server listens on `:8080`.

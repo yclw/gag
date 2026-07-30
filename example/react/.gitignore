@@ -1,0 +1,13 @@
+# Local runtime data
+react.db
+react.db-*
+
+# Environment overrides and local binaries
+.env
+.env.*
+react
+
+# Go test and coverage output
+*.test
+*.out
+coverage.*
