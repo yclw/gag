@@ -30,6 +30,7 @@ func (n *UserMessageNode) ID() string {
 }
 
 func (n *UserMessageNode) Run(ctx context.Context, events *[]graph.Event, emit graph.EmitFunc) (graph.NodeResult, error) {
+	ctx = context.WithoutCancel(ctx)
 	response, err := interrupt.Interrupt(ctx, events, emit, interrupt.InterruptRequested{
 		ID:   n.NodeID,
 		Kind: UserMessageInterruptKind,

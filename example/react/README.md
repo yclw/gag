@@ -32,7 +32,8 @@ curl -N http://localhost:8080/chat \
   -d '{"message":"Hello"}'
 ```
 
-`/chat` streams graph events emitted during the run using SSE:
+`/run`, `/chat`, and `/review` stream graph events emitted during execution
+using SSE:
 
 ```text
 event: model.delta

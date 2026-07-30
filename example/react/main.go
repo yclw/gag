@@ -72,17 +72,11 @@ func (s *server) run(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 
 	events, err := s.load(r.Context())
-	if err == nil {
-		err = s.agent.Run(r.Context(), &events, func(context.Context, graph.Event) error { return nil })
-	}
-	if err == nil {
-		err = s.save(r.Context(), events)
-	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	s.stream(w, r, events)
 }
 
 func (s *server) chat(w http.ResponseWriter, r *http.Request) {
