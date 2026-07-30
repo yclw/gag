@@ -241,7 +241,7 @@
         } else if (data.kind === "user.message") {
           review.innerHTML = ""; setState("Ready for your message.");
         }
-      } else if (type === "error") {
+      } else if (type === "execution.error") {
         toast(data.error || "Execution failed."); setState("Execution failed.");
       }
     }
@@ -292,13 +292,12 @@
     for (const type of ["model.delta","model.message","interrupt.requested","interrupt.resumed"]) {
       source.addEventListener(type,event => processEvent(type,JSON.parse(event.data)));
     }
-    source.addEventListener("error", event => {
-      if (event.data) processEvent("error",JSON.parse(event.data));
-      else {
-        $("dot").classList.remove("online"); $("connection").textContent = "Reconnecting";
-        setState("Event stream disconnected.");
-      }
-    });
+    source.addEventListener("execution.error", event =>
+      processEvent("execution.error",JSON.parse(event.data)));
+    source.onerror = () => {
+      $("dot").classList.remove("online"); $("connection").textContent = "Reconnecting";
+      setState("Event stream disconnected.");
+    };
   </script>
 </body>
 </html>

@@ -217,7 +217,7 @@ func (s *server) execute(exec *execution, control func(context.Context, *[]graph
 		err = s.save(s.ctx, events)
 	}
 	if err != nil {
-		event, encodeErr := graph.NewEvent("error", map[string]string{"error": err.Error()})
+		event, encodeErr := graph.NewEvent("execution.error", map[string]string{"error": err.Error()})
 		if encodeErr == nil {
 			exec.output = append(exec.output, event)
 			s.publishLocked(event)
