@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/yclw/gag/adk/react"
 	"github.com/yclw/gag/graph"
@@ -22,10 +24,29 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+//go:embed index.html
+var indexHTML []byte
+
+var errUserCanceled = errors.New("cancelled by user")
+
 type server struct {
-	db    *sql.DB
-	agent *graph.Graph
-	mu    sync.Mutex
+	ctx     context.Context
+	db      *sql.DB
+	agent   *graph.Graph
+	mu      sync.Mutex
+	current *execution
+
+	subscribers map[*subscriber]struct{}
+}
+
+type execution struct {
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+	output []graph.Event
+}
+
+type subscriber struct {
+	events chan graph.Event
 }
 
 func main() {
@@ -57,26 +78,29 @@ func main() {
 		log.Fatal(err)
 	}
 
-	s := &server{db: db, agent: agent}
+	s := &server{
+		ctx:         context.Background(),
+		db:          db,
+		agent:       agent,
+		subscribers: make(map[*subscriber]struct{}),
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /run", s.run)
 	mux.HandleFunc("POST /chat", s.chat)
 	mux.HandleFunc("POST /review", s.review)
+	mux.HandleFunc("POST /cancel", s.cancel)
+	mux.HandleFunc("GET /events", s.events)
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(indexHTML)
+	})
 
 	log.Printf("listening on %s", ":8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
 
 func (s *server) run(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	events, err := s.load(r.Context())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.stream(w, r, events)
+	s.control(w, nil)
 }
 
 func (s *server) chat(w http.ResponseWriter, r *http.Request) {
@@ -88,27 +112,20 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	events, err := s.load(r.Context())
-	if err == nil {
-		var value []byte
-		value, err = json.Marshal(nodes.UserMessageInput{Content: []nodes.ContentPart{{
-			Type: nodes.TextContentType, Text: in.Message,
-		}}})
-		if err == nil {
-			err = interrupt.ResumeInterrupt(r.Context(), &events, interrupt.InterruptResumed{
-				RequestID: "react.user",
-				Value:     value,
-			})
-		}
-	}
+	value, err := json.Marshal(nodes.UserMessageInput{Content: []nodes.ContentPart{{
+		Type: nodes.TextContentType, Text: in.Message,
+	}}})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.stream(w, r, events)
+
+	s.control(w, func(ctx context.Context, events *[]graph.Event) error {
+		return interrupt.ResumeInterrupt(ctx, events, interrupt.InterruptResumed{
+			RequestID: "react.user",
+			Value:     value,
+		})
+	})
 }
 
 func (s *server) review(w http.ResponseWriter, r *http.Request) {
@@ -121,54 +138,210 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	events, err := s.load(r.Context())
-	if err == nil {
-		var value []byte
-		value, err = json.Marshal(struct {
-			Approved bool `json:"approved"`
-		}{in.Approved})
-		if err == nil {
-			err = interrupt.ResumeInterrupt(r.Context(), &events, interrupt.InterruptResumed{
-				RequestID: in.RequestID,
-				Value:     value,
-			})
-		}
-	}
+	value, err := json.Marshal(struct {
+		Approved bool `json:"approved"`
+	}{in.Approved})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.stream(w, r, events)
+
+	s.control(w, func(ctx context.Context, events *[]graph.Event) error {
+		return interrupt.ResumeInterrupt(ctx, events, interrupt.InterruptResumed{
+			RequestID: in.RequestID,
+			Value:     value,
+		})
+	})
 }
 
-func (s *server) stream(w http.ResponseWriter, r *http.Request, events []graph.Event) {
+func (s *server) cancel(w http.ResponseWriter, r *http.Request) {
+	exec, started := s.start(errUserCanceled)
+	if !started {
+		exec.cancel(errUserCanceled)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	go s.execute(exec, nil)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *server) control(w http.ResponseWriter, apply func(context.Context, *[]graph.Event) error) {
+	exec, ok := s.start(nil)
+	if !ok {
+		http.Error(w, "busy", http.StatusConflict)
+		return
+	}
+	go s.execute(exec, apply)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *server) start(cause error) (*execution, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.current != nil {
+		return s.current, false
+	}
+
+	ctx, cancel := context.WithCancelCause(s.ctx)
+	if cause != nil {
+		cancel(cause)
+	}
+	exec := &execution{
+		ctx:    ctx,
+		cancel: cancel,
+	}
+	s.current = exec
+	return exec, true
+}
+
+func (s *server) execute(exec *execution, control func(context.Context, *[]graph.Event) error) {
+	defer exec.cancel(nil)
+
+	events, err := s.load(s.ctx)
+	if err == nil && control != nil {
+		err = control(exec.ctx, &events)
+		if cause := context.Cause(exec.ctx); cause != nil && errors.Is(err, cause) {
+			err = nil
+		}
+	}
+	if err == nil {
+		err = s.agent.Run(exec.ctx, &events, func(_ context.Context, event graph.Event) error {
+			return s.emit(exec, event)
+		})
+	}
+
+	s.mu.Lock()
+	if err == nil {
+		err = s.save(s.ctx, events)
+	}
+	if err != nil {
+		event, encodeErr := graph.NewEvent("error", map[string]string{"error": err.Error()})
+		if encodeErr == nil {
+			exec.output = append(exec.output, event)
+			s.publishLocked(event)
+		}
+	}
+	if s.current == exec {
+		s.current = nil
+	}
+	s.mu.Unlock()
+}
+
+func (s *server) emit(exec *execution, event graph.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.current != exec {
+		return nil
+	}
+	exec.output = append(exec.output, event)
+	s.publishLocked(event)
+	return nil
+}
+
+func (s *server) publishLocked(event graph.Event) {
+	for sub := range s.subscribers {
+		select {
+		case sub.events <- event:
+		default:
+			delete(s.subscribers, sub)
+			close(sub.events)
+		}
+	}
+}
+
+func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+
+	history, output, sub, err := s.subscribe(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer s.unsubscribe(sub)
+
+	snapshot, err := graph.NewEvent("session.snapshot", history)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	err := s.agent.Run(r.Context(), &events, func(_ context.Context, event graph.Event) error {
-		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, event.Data); err != nil {
-			return err
+	if writeEvent(w, snapshot) != nil {
+		return
+	}
+	for _, event := range output {
+		if writeEvent(w, event) != nil {
+			return
 		}
-		flusher.Flush()
-		return nil
-	})
-	if err == nil {
-		err = s.save(r.Context(), events)
 	}
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case event, ok := <-sub.events:
+			if !ok || writeEvent(w, event) != nil {
+				return
+			}
+			flusher.Flush()
+		case <-heartbeat.C:
+			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func (s *server) subscribe(ctx context.Context) ([]graph.Event, []graph.Event, *subscriber, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	history, err := s.load(ctx)
 	if err != nil {
-		data, _ := json.Marshal(map[string]string{"error": err.Error()})
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
-		flusher.Flush()
+		return nil, nil, nil, err
 	}
+	if history == nil {
+		history = []graph.Event{}
+	}
+	var output []graph.Event
+	if s.current != nil {
+		output = append(output, s.current.output...)
+	}
+	sub := &subscriber{events: make(chan graph.Event, 256)}
+	if s.subscribers == nil {
+		s.subscribers = make(map[*subscriber]struct{})
+	}
+	s.subscribers[sub] = struct{}{}
+	return history, output, sub, nil
+}
+
+func (s *server) unsubscribe(sub *subscriber) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.subscribers[sub]; ok {
+		delete(s.subscribers, sub)
+		close(sub.events)
+	}
+}
+
+func writeEvent(w io.Writer, event graph.Event) error {
+	_, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, event.Data)
+	return err
 }
 
 func (s *server) load(ctx context.Context) ([]graph.Event, error) {

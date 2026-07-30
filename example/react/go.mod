@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	github.com/google/jsonschema-go v0.4.3
-	github.com/yclw/gag v0.0.2
+	github.com/yclw/gag v0.0.3
 	modernc.org/sqlite v1.55.0
 )
 
